@@ -1,4 +1,4 @@
-//@ check-fail
+//@ check-pass
 use std::ops::Deref;
 
 fn main() {
@@ -31,5 +31,4 @@ fn main() {
     }
 
     reset(&{ Homura });
-    //~^ ERROR mismatched types
 }

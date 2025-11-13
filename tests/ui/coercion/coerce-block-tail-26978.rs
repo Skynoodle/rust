@@ -1,4 +1,4 @@
-//@ check-fail
+//@ check-pass
 fn f(_: &i32) {}
 
 fn main() {
@@ -7,5 +7,4 @@ fn main() {
     f(&x);
     f(&(x));
     f(&{x});
-    //~^ ERROR mismatched types
 }
