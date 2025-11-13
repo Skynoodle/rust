@@ -73,7 +73,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 Expectation::ExpectHasType(ety) if ety != tcx.types.unit => ety,
                 _ => self.next_ty_var(expr.span),
             };
-            CoerceMany::with_coercion_sites(coerce_first, arms)
+            CoerceMany::with_coercion_sites(coerce_first, arms, false)
         };
 
         let mut prior_non_diverging_arms = vec![]; // Used only for diagnostics.

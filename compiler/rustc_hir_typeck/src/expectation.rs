@@ -15,6 +15,9 @@ pub(crate) enum Expectation<'tcx> {
     /// This expression should have the type given (or some subtype).
     ExpectHasType(Ty<'tcx>),
 
+    /// This expression should have, or be derefable to, the type given.
+    ExpectDerefableToType(Ty<'tcx>),
+
     /// This expression will be cast to the `Ty`.
     ExpectCastableToType(Ty<'tcx>),
 
@@ -96,6 +99,7 @@ impl<'a, 'tcx> Expectation<'tcx> {
             NoExpectation => NoExpectation,
             ExpectCastableToType(t) => ExpectCastableToType(fcx.resolve_vars_if_possible(t)),
             ExpectHasType(t) => ExpectHasType(fcx.resolve_vars_if_possible(t)),
+            ExpectDerefableToType(t) => ExpectDerefableToType(fcx.resolve_vars_if_possible(t)),
             ExpectRvalueLikeUnsized(t) => ExpectRvalueLikeUnsized(fcx.resolve_vars_if_possible(t)),
         }
     }
@@ -103,7 +107,10 @@ impl<'a, 'tcx> Expectation<'tcx> {
     pub(super) fn to_option(self, fcx: &FnCtxt<'a, 'tcx>) -> Option<Ty<'tcx>> {
         match self.resolve(fcx) {
             NoExpectation => None,
-            ExpectCastableToType(ty) | ExpectHasType(ty) | ExpectRvalueLikeUnsized(ty) => Some(ty),
+            ExpectCastableToType(ty)
+            | ExpectHasType(ty)
+            | ExpectDerefableToType(ty)
+            | ExpectRvalueLikeUnsized(ty) => Some(ty),
         }
     }
 
@@ -113,14 +120,21 @@ impl<'a, 'tcx> Expectation<'tcx> {
     /// such a constraint, if it exists.
     pub(super) fn only_has_type(self, fcx: &FnCtxt<'a, 'tcx>) -> Option<Ty<'tcx>> {
         match self {
-            ExpectHasType(ty) => Some(fcx.resolve_vars_if_possible(ty)),
+            ExpectHasType(ty) | ExpectDerefableToType(ty) => Some(fcx.resolve_vars_if_possible(ty)),
             NoExpectation | ExpectCastableToType(_) | ExpectRvalueLikeUnsized(_) => None,
         }
     }
 
     /// Like `only_has_type`, but instead of returning `None` if no
     /// hard constraint exists, creates a fresh type variable.
-    pub(super) fn coercion_target_type(self, fcx: &FnCtxt<'a, 'tcx>, span: Span) -> Ty<'tcx> {
-        self.only_has_type(fcx).unwrap_or_else(|| fcx.next_ty_var(span))
+    pub(super) fn coercion_target_type(
+        self,
+        fcx: &FnCtxt<'a, 'tcx>,
+        span: Span,
+    ) -> (Ty<'tcx>, bool) {
+        (
+            self.only_has_type(fcx).unwrap_or_else(|| fcx.next_ty_var(span)),
+            matches!(self, ExpectDerefableToType(_)),
+        )
     }
 }
