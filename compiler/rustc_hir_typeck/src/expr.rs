@@ -683,7 +683,12 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                         // the last field of a struct can be unsized.
                         ExpectHasType(*ty)
                     } else {
-                        Expectation::rvalue_hint(self, *ty)
+                        match Expectation::rvalue_hint(self, *ty) {
+                            Expectation::ExpectHasType(ty) => {
+                                Expectation::ExpectDerefableToType(ty)
+                            }
+                            ex => ex,
+                        }
                     }
                 }
                 _ => NoExpectation,
@@ -1419,8 +1424,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         // `expected` if it represents a *hard* constraint
         // (`only_has_type`); otherwise, we just go with a
         // fresh type variable.
-        let coerce_to_ty = expected.coercion_target_type(self, sp);
-        let mut coerce: DynamicCoerceMany<'_> = CoerceMany::new(coerce_to_ty);
+        let (coerce_to_ty, may_deref) = expected.coercion_target_type(self, sp);
+        let mut coerce: DynamicCoerceMany<'_> = CoerceMany::new(coerce_to_ty, may_deref);
 
         coerce.coerce(self, &self.misc(sp), then_expr, then_ty);
 
@@ -1633,8 +1638,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         let coerce = match source {
             // you can only use break with a value from a normal `loop { }`
             hir::LoopSource::Loop => {
-                let coerce_to = expected.coercion_target_type(self, body.span);
-                Some(CoerceMany::new(coerce_to))
+                let (coerce_to, may_deref) = expected.coercion_target_type(self, body.span);
+                Some(CoerceMany::new(coerce_to, may_deref))
             }
 
             hir::LoopSource::While | hir::LoopSource::ForLoop => None,
@@ -1874,7 +1879,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 .to_option(self)
                 .and_then(|uty| self.try_structurally_resolve_type(expr.span, uty).builtin_index())
                 .unwrap_or_else(|| self.next_ty_var(expr.span));
-            let mut coerce = CoerceMany::with_coercion_sites(coerce_to, args);
+            let mut coerce = CoerceMany::with_coercion_sites(coerce_to, args, false);
 
             for e in args {
                 let e_ty = self.check_expr_with_hint(e, coerce_to);

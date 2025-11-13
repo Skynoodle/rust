@@ -45,7 +45,7 @@ pub(super) fn check_fn<'a, 'tcx>(
         ));
 
     fcx.coroutine_types = coroutine_types;
-    fcx.ret_coercion = Some(RefCell::new(CoerceMany::new(ret_ty)));
+    fcx.ret_coercion = Some(RefCell::new(CoerceMany::new(ret_ty, false)));
 
     let span = body.value.span;
 

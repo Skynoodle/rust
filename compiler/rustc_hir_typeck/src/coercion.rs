@@ -1425,6 +1425,7 @@ pub fn can_coerce<'tcx>(
 /// ```
 pub(crate) struct CoerceMany<'tcx, 'exprs, E: AsCoercionSite> {
     expected_ty: Ty<'tcx>,
+    may_deref_coerce: bool,
     final_ty: Option<Ty<'tcx>>,
     expressions: Expressions<'tcx, 'exprs, E>,
     pushed: usize,
@@ -1443,8 +1444,8 @@ impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
     /// The usual case; collect the set of expressions dynamically.
     /// If the full set of coercion sites is known before hand,
     /// consider `with_coercion_sites()` instead to avoid allocation.
-    pub(crate) fn new(expected_ty: Ty<'tcx>) -> Self {
-        Self::make(expected_ty, Expressions::Dynamic(vec![]))
+    pub(crate) fn new(expected_ty: Ty<'tcx>, may_deref_coerce: bool) -> Self {
+        Self::make(expected_ty, Expressions::Dynamic(vec![]), may_deref_coerce)
     }
 
     /// As an optimization, you can create a `CoerceMany` with a
@@ -1452,12 +1453,20 @@ impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
     /// expected to pass each element in the slice to `coerce(...)` in
     /// order. This is used with arrays in particular to avoid
     /// needlessly cloning the slice.
-    pub(crate) fn with_coercion_sites(expected_ty: Ty<'tcx>, coercion_sites: &'exprs [E]) -> Self {
-        Self::make(expected_ty, Expressions::UpFront(coercion_sites))
+    pub(crate) fn with_coercion_sites(
+        expected_ty: Ty<'tcx>,
+        coercion_sites: &'exprs [E],
+        may_deref_coerce: bool,
+    ) -> Self {
+        Self::make(expected_ty, Expressions::UpFront(coercion_sites), may_deref_coerce)
     }
 
-    fn make(expected_ty: Ty<'tcx>, expressions: Expressions<'tcx, 'exprs, E>) -> Self {
-        CoerceMany { expected_ty, final_ty: None, expressions, pushed: 0 }
+    fn make(
+        expected_ty: Ty<'tcx>,
+        expressions: Expressions<'tcx, 'exprs, E>,
+        may_deref_coerce: bool,
+    ) -> Self {
+        CoerceMany { expected_ty, may_deref_coerce, final_ty: None, expressions, pushed: 0 }
     }
 
     /// Returns the "expected type" with which this coercion was
@@ -1574,13 +1583,40 @@ impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
                 // Special-case the first expression we are coercing.
                 // To be honest, I'm not entirely sure why we do this.
                 // We don't allow two-phase borrows, see comment in try_find_coercion_lub for why
-                fcx.coerce(
+                let result = fcx.coerce(
                     expression,
                     expression_ty,
                     self.expected_ty,
                     AllowTwoPhase::No,
                     Some(cause.clone()),
-                )
+                );
+
+                if self.may_deref_coerce
+                    && let Err(e) = result
+                {
+                    let tcx = fcx.tcx;
+                    // Actually need autoderef "&expression_ty" because reasons
+                    let expression_ref_ty = Ty::new_ref(
+                        tcx,
+                        tcx.lifetimes.re_erased,
+                        expression_ty,
+                        ty::Mutability::Not,
+                    );
+                    let expected_ref_ty = Ty::new_ref(
+                        tcx,
+                        tcx.lifetimes.re_erased,
+                        self.expected_ty,
+                        ty::Mutability::Not,
+                    );
+                    // Shouldn't be using may_coerce outside of diagnostics
+                    if fcx.may_coerce(expression_ref_ty, expected_ref_ty) {
+                        Ok(expression_ty)
+                    } else {
+                        Err(e)
+                    }
+                } else {
+                    result
+                }
             } else {
                 match self.expressions {
                     Expressions::Dynamic(ref exprs) => fcx.try_find_coercion_lub(
